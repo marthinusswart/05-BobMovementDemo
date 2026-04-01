@@ -123,6 +123,24 @@ You physically add a 1-word (16px) empty padding column between masked bobs in t
 - **Pros:** Maximum performance. Uses the standard `0xE2` cookie-cut minterm in a single pass. Costs only 4 DMA cycles per word.
 - **Cons:** Wastes Chip RAM memory due to the empty space in the sprite sheet.
 
+**How to pad your sprite sheet:**
+
+- **Width (Right-side only):** You need exactly 16 pixels (1 Word) of completely transparent empty space to the right of every sprite. The Amiga Blitter only has to perform complex bit-shifting for sub-pixel movement on the horizontal X-axis. When shifting right, pixels overflow into the next word.
+- **Height (No padding):** Moving a sprite vertically does not require any bit-shifting; you just tell the blitter to start reading from a lower row in memory. Sprites can be tightly packed vertically.
+
+_Example Grid for 16x16 Sprites:_
+If your game object is a 16x16 pixel sprite, place it inside a 32x16 bounding box.
+
+- **X (Horizontal):** Space them every 32 pixels (Draw at X: 0, 32, 64, 96...)
+- **Y (Vertical):** Pack them tightly every 16 pixels (Draw at Y: 0, 16, 32, 48...)
+
+**Pre-Padding Assets vs. In-Memory Padding:**
+It is highly recommended to pad your sprites directly in your graphics program rather than injecting padding dynamically in Chip RAM at runtime.
+
+- **Data Compression:** The empty 16-pixel padding consists of zeroes, which compress extremely well (e.g., using RLE or dictionary compression). A padded 32x16 sprite sheet will compress to almost the exact same size on disk as a tightly packed 16x16 sheet.
+- **Code Complexity:** Injecting padding into a 5-plane interleaved image at runtime requires allocating a new memory block, looping through every row and plane, and carefully copying bits while injecting zeroes. This adds unnecessary complexity and load time.
+- **Visual Debugging:** Pre-padded assets ensure that what you see in the hardware graphics debugger perfectly matches the data on disk.
+
 ### The Two-Pass Method (Tightly Packed Sprite Sheets)
 
 You abandon Channel B entirely and perform the cookie-cut in two passes using Channel A, because Channel A **does** have a Last Word Mask (`bltalwm`).

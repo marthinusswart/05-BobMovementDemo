@@ -1,4 +1,5 @@
 #include "support/gcc8_c_support.h"
+#include "blitter.h"
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/graphics.h>
@@ -78,15 +79,6 @@ void WaitLine(USHORT line)
 		if (((vpos >> 8) & 511) == line)
 			break;
 	}
-}
-
-__attribute__((always_inline)) inline void WaitBlt()
-{
-	UWORD tst = *(volatile UWORD *)&custom->dmaconr; // for compatiblity a1000
-	(void)tst;
-	while (*(volatile UWORD *)&custom->dmaconr & (1 << 14))
-	{
-	} // blitter busy wait
 }
 
 void TakeSystem()
@@ -394,145 +386,53 @@ static void Wait11() { WaitLine(0x11); }
 static void Wait12() { WaitLine(0x12); }
 static void Wait13() { WaitLine(0x13); }
 
-// Calculates the X and Y pixel coordinates of a sprite within a tileset
-void calculate_sprite_location(int row, int col, int sprite_width, int sprite_height, int tileset_width, int tileset_height, int *sprite_x, int *sprite_y)
+void legacyBlit(int x, int y, UBYTE *src, UBYTE *src2)
 {
-	// Multiply row/col by dimensions, and use modulo to safely wrap if out of bounds
-	*sprite_x = (col * sprite_width) % tileset_width;
-	*sprite_y = (row * sprite_height) % tileset_height;
-}
+	WaitBlt(custom); // Use your inline hardware wait instead of the OS WaitBlit()
 
-void blit_bob_1x(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y)
-{
-	WaitBlt(); // Always wait for the blitter before setting registers
-
-	// Calculate source offset based on sprite location
-	// Source is interleaved with a mask after EVERY plane (5 image + 5 mask = 10 planes total)
-	int src_y_offset = sprite_location_y * (tileset_width / 8) * 10;
-	int src_x_offset = sprite_location_x / 8; // 8 pixels = 1 byte
-	const UBYTE *src_start = tileset + src_y_offset + src_x_offset;
-
-	// Standard cookie-cutter minterm: (A AND B) OR (C AND (NOT B)) -> 0xE2
+	// Standard cookie-cutter: (A AND B) OR (C AND (NOT B)) -> 0xE2
 	custom->bltcon0 = 0xe2 | SRCA | SRCB | SRCC | DEST | ((x & 15) << ASHIFTSHIFT);
 	custom->bltcon1 = ((x & 15) << BSHIFTSHIFT);
 
-	// Calculate stride logic dynamically based on the source image size vs blit size
-	int src_modulo = (tileset_width / 8) * 2 - (width / 8);
-	int dest_modulo = (320 - width) / 8; // Assuming 320-pixel wide screen
-	int mask_offset = (tileset_width / 8);
-
-	custom->bltapt = (APTR)src_start;
-	custom->bltamod = src_modulo;
-	custom->bltbpt = (APTR)(src_start + mask_offset);
-	custom->bltbmod = src_modulo;
+	// CRITICAL FIX: The source image is 320 pixels wide (40 bytes).
+	// Stride to next plane = 40 bytes (Image) + 40 bytes (Mask) = 80 bytes.
+	// Since we blit 1 word (2 bytes) per line, the skip modulo is 80 - 2 = 78 bytes.
+	custom->bltapt = src;
+	custom->bltamod = (320 / 8) * 2 - (16 / 8);
+	custom->bltbpt = src + (320 / 8); // Mask is 40 bytes after Plane 0
+	custom->bltbmod = (320 / 8) * 2 - (16 / 8);
 
 	UBYTE *dest = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
 	custom->bltcpt = dest;
 	custom->bltdpt = dest;
 
-	custom->bltcmod = dest_modulo;
-	custom->bltdmod = dest_modulo;
+	custom->bltcmod = (320 - 16) / 8; // 38 bytes
+	custom->bltdmod = (320 - 16) / 8;
 
 	custom->bltafwm = 0xffff;
 	custom->bltalwm = 0xffff;
-	custom->bltsize = ((height * 5) << HSIZEBITS) | (width / 16); // height * planes
-}
+	custom->bltsize = ((16 * 5) << HSIZEBITS) | (16 / 16); // 16 lines * 5 planes, 1 word wide
 
-// Blits a 5-plane interleaved masked bob to the 320-pixel wide Interleaved screen.
-void blit_bob_2x(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y)
-{
-	WaitBlt(); // Always wait for the blitter before setting registers
+	// --- BOB 2 ---
+	x = 64;
+	WaitBlt(custom);
+	custom->bltcon0 = 0xca | SRCA | SRCB | SRCC | DEST | ((x & 15) << ASHIFTSHIFT);
+	custom->bltcon1 = ((x & 15) << BSHIFTSHIFT);
+	custom->bltapt = src2;
+	custom->bltamod = 64 / 8;			// 8 bytes: skip mask to next plane's image data
+	custom->bltbpt = src2 + 64 / 8 * 1; // mask is 8 bytes after image data
+	custom->bltbmod = 64 / 8;			// 8 bytes: skip image to next plane's mask data
 
-	int shift = x & 15;
-	int draw_words = width / 16;
+	UBYTE *dest2 = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
+	custom->bltcpt = dest2;
+	custom->bltdpt = dest2;
 
-	// If the bob is shifted, it spills over into an extra 16-pixel word.
-	if (shift > 0)
-	{
-		draw_words += 1;
-	}
-	int draw_bytes = draw_words * 2;
-
-	// Calculate source offset based on sprite location
-	// Source is interleaved with a mask after EVERY plane (5 image + 5 mask = 10 planes total)
-	int src_y_offset = sprite_location_y * (tileset_width / 8) * 10;
-	int src_x_offset = sprite_location_x / 8; // 8 pixels = 1 byte
-	const UBYTE *src_start = tileset + src_y_offset + src_x_offset;
-
-	// If we read an extra word to accommodate the shift, it contains the neighboring
-	// sprite in the sheet. We mask it to 0 so it doesn't bleed onto the screen.
-	UWORD lwm = (shift > 0) ? 0x0000 : 0xffff;
-
-	int mask_offset = (tileset_width / 8);
-
-	// Modulos must account for the actual number of bytes blitted
-	int src_modulo = (tileset_width / 8) * 2 - draw_bytes;
-	int dest_modulo = (320 / 8) - draw_bytes;
-
-	UBYTE *dest = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
-
-	// --- PASS 1: Cut the hole (Minterm 0x0A = C & ~A) ---
-	// We point Channel A to the MASK data.
-	custom->bltcon0 = 0x0a | SRCA | SRCC | DEST | (shift << ASHIFTSHIFT);
-	custom->bltcon1 = 0; // Only A is shifted, B is unused
-
-	custom->bltafwm = 0xffff;
-	custom->bltalwm = lwm;
-
-	custom->bltapt = (APTR)(src_start + mask_offset);
-	custom->bltamod = src_modulo;
-
-	custom->bltcpt = dest;
-	custom->bltcmod = dest_modulo;
-	custom->bltdpt = dest;
-	custom->bltdmod = dest_modulo;
-
-	custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words;
-
-	// --- PASS 2: Draw the Image (Minterm 0xFA = C | A) ---
-	WaitBlt();
-	// We point Channel A to the IMAGE data.
-	custom->bltcon0 = 0xfa | SRCA | SRCC | DEST | (shift << ASHIFTSHIFT);
-	custom->bltcon1 = 0;
-
-	// FWM/LWM remain the same
-	custom->bltapt = (APTR)src_start;
-	custom->bltcpt = dest;
-	custom->bltdpt = dest;
-
-	custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words;
-}
-
-// Restores a rectangular block from a clean background to the active screen buffer.
-// Both buffers must be 320-pixel wide Interleaved formats.
-void restore_background(int x, int y, int width, int height, const UBYTE *clean_bg, UBYTE *screen_buffer)
-{
-	WaitBlt();
-
-	int shift = x & 15;
-	int draw_words = width / 16;
-	if (shift > 0)
-		draw_words += 1;
-
-	int draw_bytes = draw_words * 2;
-
-	// Minterm 0xF0 means D = A (Direct Copy).
-	// No shifts are needed because the clean background and screen perfectly align!
-	custom->bltcon0 = SRCA | DEST | 0xf0;
-	custom->bltcon1 = 0;
-
-	int byte_offset = (320 / 8) * 5 * y + (x / 16) * 2;
-	int modulo = (320 / 8) - draw_bytes;
-
-	custom->bltapt = (APTR)(clean_bg + byte_offset);
-	custom->bltamod = modulo;
-
-	custom->bltdpt = screen_buffer + byte_offset;
-	custom->bltdmod = modulo;
+	custom->bltcmod = (320 - 64) / 8; // 32 bytes
+	custom->bltdmod = (320 - 64) / 8;
 
 	custom->bltafwm = 0xffff;
 	custom->bltalwm = 0xffff;
-	custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words;
+	custom->bltsize = ((64 * 5) << HSIZEBITS) | (64 / 16); // 64 lines * 5 planes, 4 words wide
 }
 
 int main()
@@ -638,7 +538,7 @@ int main()
 	int bob3_x = 0;
 	int bob3_y = 0;
 
-	calculate_sprite_location(0, 1, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	calculateSpriteLocation(0, 1, 16, 16, 320, 320, &bob3_x, &bob3_y);
 	KPrintF("Bob3 location x: (%ld)\n", bob3_x);
 	KPrintF("Bob3 location y: (%ld)\n", bob3_y);
 	int mv = 0;
@@ -658,51 +558,7 @@ int main()
 
 		if (drawFirst)
 		{
-			WaitBlt(); // Use your inline hardware wait instead of the OS WaitBlit()
-
-			// Standard cookie-cutter: (A AND B) OR (C AND (NOT B)) -> 0xE2
-			custom->bltcon0 = 0xe2 | SRCA | SRCB | SRCC | DEST | ((x & 15) << ASHIFTSHIFT);
-			custom->bltcon1 = ((x & 15) << BSHIFTSHIFT);
-
-			// CRITICAL FIX: The source image is 320 pixels wide (40 bytes).
-			// Stride to next plane = 40 bytes (Image) + 40 bytes (Mask) = 80 bytes.
-			// Since we blit 1 word (2 bytes) per line, the skip modulo is 80 - 2 = 78 bytes.
-			custom->bltapt = src;
-			custom->bltamod = (320 / 8) * 2 - (16 / 8);
-			custom->bltbpt = src + (320 / 8); // Mask is 40 bytes after Plane 0
-			custom->bltbmod = (320 / 8) * 2 - (16 / 8);
-
-			UBYTE *dest = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
-			custom->bltcpt = dest;
-			custom->bltdpt = dest;
-
-			custom->bltcmod = (320 - 16) / 8; // 38 bytes
-			custom->bltdmod = (320 - 16) / 8;
-
-			custom->bltafwm = 0xffff;
-			custom->bltalwm = 0xffff;
-			custom->bltsize = ((16 * 5) << HSIZEBITS) | (16 / 16); // 16 lines * 5 planes, 1 word wide
-
-			// --- BOB 2 ---
-			x = 64;
-			WaitBlt();
-			custom->bltcon0 = 0xca | SRCA | SRCB | SRCC | DEST | ((x & 15) << ASHIFTSHIFT);
-			custom->bltcon1 = ((x & 15) << BSHIFTSHIFT);
-			custom->bltapt = src2;
-			custom->bltamod = 64 / 8;			// 8 bytes: skip mask to next plane's image data
-			custom->bltbpt = src2 + 64 / 8 * 1; // mask is 8 bytes after image data
-			custom->bltbmod = 64 / 8;			// 8 bytes: skip image to next plane's mask data
-
-			UBYTE *dest2 = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
-			custom->bltcpt = dest2;
-			custom->bltdpt = dest2;
-
-			custom->bltcmod = (320 - 64) / 8; // 32 bytes
-			custom->bltdmod = (320 - 64) / 8;
-
-			custom->bltafwm = 0xffff;
-			custom->bltalwm = 0xffff;
-			custom->bltsize = ((64 * 5) << HSIZEBITS) | (64 / 16); // 64 lines * 5 planes, 4 words wide
+			legacyBlit(x, y, src, src2);
 		}
 
 		// --- TEST NEW FUNCTION ---
@@ -711,16 +567,16 @@ int main()
 			if (drawFirst)
 			{
 				KPrintF("Blitting! (%ld)\n", mv);
-				blit_bob_1x(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
-				blit_bob_1x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
-				blit_bob_1x(208 + mv, y + 1, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 16, 0);
+				blitBob1x(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0, screen_buffer, custom);
+				blitBob1x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0, screen_buffer, custom);
+				blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 16, 0, screen_buffer, custom);
 			}
 			else
 			{
 				KPrintF("Clearing Blitting! (%ld)\n", (mv - 1));
-				restore_background(128 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer);
-				restore_background(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer);
-				restore_background(208 + (mv - 1), y + 1, 16, 16, (const UBYTE *)image, screen_buffer);
+				restoreBackground(128 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer, custom);
+				restoreBackground(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+				restoreBackground(208 + (mv - 1), y + 1, 16, 16, (const UBYTE *)image, screen_buffer, custom);
 			}
 
 			drawFirst = !drawFirst;

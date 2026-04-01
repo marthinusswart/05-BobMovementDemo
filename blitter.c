@@ -12,13 +12,24 @@ void blitBob1x(int x, int y, int width, int height, const UBYTE *tileset, int ti
     int src_x_offset = sprite_location_x / 8; // 8 pixels = 1 byte
     const UBYTE *src_start = tileset + src_y_offset + src_x_offset;
 
+    int shift = x & 15;
+    int draw_words = width / 16;
+
+    // If the bob is shifted, it spills over into an extra 16-pixel word.
+    // Because this is a 1x padded bob, the source asset MUST have an empty 16px word to the right!
+    if (shift > 0)
+    {
+        draw_words += 1;
+    }
+    int draw_bytes = draw_words * 2;
+
     // Standard cookie-cutter minterm: (A AND B) OR (C AND (NOT B)) -> 0xE2
-    custom->bltcon0 = 0xe2 | SRCA | SRCB | SRCC | DEST | ((x & 15) << ASHIFTSHIFT);
-    custom->bltcon1 = ((x & 15) << BSHIFTSHIFT);
+    custom->bltcon0 = 0xe2 | SRCA | SRCB | SRCC | DEST | (shift << ASHIFTSHIFT);
+    custom->bltcon1 = (shift << BSHIFTSHIFT);
 
     // Calculate stride logic dynamically based on the source image size vs blit size
-    int src_modulo = (tileset_width / 8) * 2 - (width / 8);
-    int dest_modulo = (320 - width) / 8; // Assuming 320-pixel wide screen
+    int src_modulo = (tileset_width / 8) * 2 - draw_bytes;
+    int dest_modulo = (320 / 8) - draw_bytes;
     int mask_offset = (tileset_width / 8);
 
     custom->bltapt = (APTR)src_start;
@@ -35,7 +46,7 @@ void blitBob1x(int x, int y, int width, int height, const UBYTE *tileset, int ti
 
     custom->bltafwm = 0xffff;
     custom->bltalwm = 0xffff;
-    custom->bltsize = ((height * 5) << HSIZEBITS) | (width / 16); // height * planes
+    custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words; // height * planes
 }
 
 void blitBob2x(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y, UBYTE *screen_buffer, volatile struct Custom *custom)

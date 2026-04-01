@@ -1,5 +1,6 @@
 #include "support/gcc8_c_support.h"
 #include "blitter.h"
+#include "mouse.h"
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/graphics.h>
@@ -148,9 +149,6 @@ void FreeSystem()
 
 	Permit();
 }
-
-__attribute__((always_inline)) inline short MouseLeft() { return !((*(volatile UBYTE *)0xbfe001) & 64); }
-__attribute__((always_inline)) inline short MouseRight() { return !((*(volatile UWORD *)0xdff016) & (1 << 10)); }
 
 // DEMO - INCBIN
 volatile short frameCounter = 0;
@@ -538,7 +536,7 @@ int main()
 	int bob3_x = 0;
 	int bob3_y = 0;
 
-	calculateSpriteLocation(0, 1, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	calculateSpriteLocation(3, 5, 16, 16, 320, 320, &bob3_x, &bob3_y);
 	KPrintF("Bob3 location x: (%ld)\n", bob3_x);
 	KPrintF("Bob3 location y: (%ld)\n", bob3_y);
 	int mv = 0;
@@ -550,7 +548,7 @@ int main()
 
 		// Set x to a multiple of 16 (like 96) to prevent 1-word right-edge cutoff
 		int x = 16;
-		int y = 140;
+		int y = 150;
 
 		// Grab the very first 16x16 tile in the sprite sheet (Index 0)
 		UBYTE *src = (UBYTE *)pacman_tiles;
@@ -562,24 +560,19 @@ int main()
 		}
 
 		// --- TEST NEW FUNCTION ---
-		if (f > 254)
+		if (f % 25 == 0)
 		{
-			if (drawFirst)
-			{
-				KPrintF("Blitting! (%ld)\n", mv);
-				blitBob1x(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0, screen_buffer, custom);
-				blitBob1x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0, screen_buffer, custom);
-				blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 16, 0, screen_buffer, custom);
-			}
-			else
-			{
-				KPrintF("Clearing Blitting! (%ld)\n", (mv - 1));
-				restoreBackground(128 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer, custom);
-				restoreBackground(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
-				restoreBackground(208 + (mv - 1), y + 1, 16, 16, (const UBYTE *)image, screen_buffer, custom);
-			}
 
-			drawFirst = !drawFirst;
+			KPrintF("Clearing Blitting! (%ld)\n", (mv - 1));
+			restoreBackground(128 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer, custom);
+			restoreBackground(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+			restoreBackground(208 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+
+			KPrintF("Blitting! (%ld)\n", mv);
+			blitBob1x(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0, screen_buffer, custom);
+			blitBob2x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0, screen_buffer, custom);
+			blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
+
 			mv += 1;
 		}
 	}

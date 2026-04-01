@@ -618,17 +618,17 @@ int main()
 		{
 			if (drawFirst)
 			{
-				blit_bob(128, y, 64, 64, (UBYTE *)bob2, 64, 64);
-				blit_bob(192, y, 16, 16, (UBYTE *)pacman_tiles, 320, 320);
-				restore_background(16, y, 16, 16, image, screen_buffer);
-				restore_background(64, y, 64, 64, image, screen_buffer);
+				blit_bob(128, y, 64, 64, (const UBYTE *)bob2, 64, 64);
+				blit_bob(192, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320);
+				restore_background(16, y, 16, 16, (const UBYTE *)image, screen_buffer);
+				restore_background(64, y, 64, 64, (const UBYTE *)image, screen_buffer);
 			}
 			else
 			{
-				restore_background(128, y, 64, 64, image, screen_buffer);
-				restore_background(192, y, 16, 16, image, screen_buffer);
-				blit_bob(16, y, 16, 16, (UBYTE *)pacman_tiles, 320, 320);
-				blit_bob(64, y, 64, 64, (UBYTE *)bob2, 64, 64);
+				restore_background(128, y, 64, 64, (const UBYTE *)image, screen_buffer);
+				restore_background(192, y, 16, 16, (const UBYTE *)image, screen_buffer);
+				blit_bob(16, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320);
+				blit_bob(64, y, 64, 64, (const UBYTE *)bob2, 64, 64);
 			}
 
 			drawFirst = !drawFirst;

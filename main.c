@@ -410,7 +410,7 @@ void blit_bob(int x, int y, int width, int height, const UBYTE *tileset, int til
 	// Calculate source offset based on sprite location
 	// Source is interleaved with a mask after EVERY plane (5 image + 5 mask = 10 planes total)
 	int src_y_offset = sprite_location_y * (tileset_width / 8) * 10;
-	int src_x_offset = (sprite_location_x / 16) * 2;
+	int src_x_offset = sprite_location_x / 8; // 8 pixels = 1 byte
 	const UBYTE *src_start = tileset + src_y_offset + src_x_offset;
 
 	// Standard cookie-cutter minterm: (A AND B) OR (C AND (NOT B)) -> 0xE2
@@ -568,7 +568,9 @@ int main()
 	int bob3_y = 0;
 
 	calculate_sprite_location(0, 1, 16, 16, 320, 320, &bob3_x, &bob3_y);
-	KPrintF("Bob3 location: (%d, %d)\n", bob3_x, bob3_y);
+	KPrintF("Bob3 location x: (%ld)\n", bob3_x);
+	KPrintF("Bob3 location y: (%ld)\n", bob3_y);
+	int mv = 0;
 
 	while (!MouseLeft())
 	{
@@ -637,21 +639,21 @@ int main()
 		{
 			if (drawFirst)
 			{
-				blit_bob(128, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
-				blit_bob(192, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
-				blit_bob(216, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y);
-				restore_background(16, y, 16, 16, (const UBYTE *)image, screen_buffer);
-				restore_background(64, y, 64, 64, (const UBYTE *)image, screen_buffer);
+				KPrintF("Blitting! (%ld)\n", mv);
+				blit_bob(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
+				blit_bob(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
+				blit_bob(208 + mv, y + 1, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 16, 0);
 			}
 			else
 			{
-				restore_background(128, y, 64, 64, (const UBYTE *)image, screen_buffer);
-				restore_background(192, y, 16, 16, (const UBYTE *)image, screen_buffer);
-				blit_bob(16, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
-				blit_bob(64, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
+				KPrintF("Clearing Blitting! (%ld)\n", (mv - 1));
+				restore_background(128 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer);
+				restore_background(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer);
+				restore_background(208 + (mv - 1), y + 1, 16, 16, (const UBYTE *)image, screen_buffer);
 			}
 
 			drawFirst = !drawFirst;
+			mv += 1;
 		}
 	}
 

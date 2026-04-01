@@ -394,10 +394,24 @@ static void Wait11() { WaitLine(0x11); }
 static void Wait12() { WaitLine(0x12); }
 static void Wait13() { WaitLine(0x13); }
 
+// Calculates the X and Y pixel coordinates of a sprite within a tileset
+void calculate_sprite_location(int row, int col, int sprite_width, int sprite_height, int tileset_width, int tileset_height, int *sprite_x, int *sprite_y)
+{
+	// Multiply row/col by dimensions, and use modulo to safely wrap if out of bounds
+	*sprite_x = (col * sprite_width) % tileset_width;
+	*sprite_y = (row * sprite_height) % tileset_height;
+}
+
 // Blits a 5-plane interleaved masked bob to the 320-pixel wide Interleaved screen.
-void blit_bob(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height)
+void blit_bob(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y)
 {
 	WaitBlt(); // Always wait for the blitter before setting registers
+
+	// Calculate source offset based on sprite location
+	// Source is interleaved with a mask after EVERY plane (5 image + 5 mask = 10 planes total)
+	int src_y_offset = sprite_location_y * (tileset_width / 8) * 10;
+	int src_x_offset = (sprite_location_x / 16) * 2;
+	const UBYTE *src_start = tileset + src_y_offset + src_x_offset;
 
 	// Standard cookie-cutter minterm: (A AND B) OR (C AND (NOT B)) -> 0xE2
 	custom->bltcon0 = 0xe2 | SRCA | SRCB | SRCC | DEST | ((x & 15) << ASHIFTSHIFT);
@@ -408,9 +422,9 @@ void blit_bob(int x, int y, int width, int height, const UBYTE *tileset, int til
 	int dest_modulo = (320 - width) / 8; // Assuming 320-pixel wide screen
 	int mask_offset = (tileset_width / 8);
 
-	custom->bltapt = (APTR)tileset;
+	custom->bltapt = (APTR)src_start;
 	custom->bltamod = src_modulo;
-	custom->bltbpt = (APTR)(tileset + mask_offset);
+	custom->bltbpt = (APTR)(src_start + mask_offset);
 	custom->bltbmod = src_modulo;
 
 	UBYTE *dest = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
@@ -550,6 +564,11 @@ int main()
 
 	custom->intreq = (1 << INTB_VERTB); // reset vbl req
 	BOOL drawFirst = TRUE;
+	int bob3_x = 0;
+	int bob3_y = 0;
+
+	calculate_sprite_location(0, 1, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	KPrintF("Bob3 location: (%d, %d)\n", bob3_x, bob3_y);
 
 	while (!MouseLeft())
 	{
@@ -618,8 +637,9 @@ int main()
 		{
 			if (drawFirst)
 			{
-				blit_bob(128, y, 64, 64, (const UBYTE *)bob2, 64, 64);
-				blit_bob(192, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320);
+				blit_bob(128, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
+				blit_bob(192, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
+				blit_bob(216, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y);
 				restore_background(16, y, 16, 16, (const UBYTE *)image, screen_buffer);
 				restore_background(64, y, 64, 64, (const UBYTE *)image, screen_buffer);
 			}
@@ -627,8 +647,8 @@ int main()
 			{
 				restore_background(128, y, 64, 64, (const UBYTE *)image, screen_buffer);
 				restore_background(192, y, 16, 16, (const UBYTE *)image, screen_buffer);
-				blit_bob(16, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320);
-				blit_bob(64, y, 64, 64, (const UBYTE *)bob2, 64, 64);
+				blit_bob(16, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
+				blit_bob(64, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
 			}
 
 			drawFirst = !drawFirst;

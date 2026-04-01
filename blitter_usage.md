@@ -107,3 +107,30 @@ custom->bltafwm = 0xffff;
 custom->bltalwm = 0xffff;
 custom->bltsize = ((height * 5) << HSIZEBITS) | (width / 16);
 ```
+
+## 6. The Channel B Mask Trap (1-Pass vs. 2-Pass Blitting)
+
+When shifting a bob by a sub-word amount (e.g., 3 pixels), the bits overflow into an extra 16-pixel word in memory. To draw this, you must increase your blit width (`bltsize`) by 1 word.
+
+However, the Amiga hardware **does not have a Last Word Mask for Channel B!** If your sprite sheet is tightly packed, expanding the blit width causes Channel B to suck in the neighboring sprite's mask, shifting it and ripping black holes into your background.
+
+There are two ways to solve this classic memory vs. speed trade-off:
+
+### The Single-Pass Method (Padded Sprite Sheets)
+
+You physically add a 1-word (16px) empty padding column between masked bobs in the sprite sheet asset itself.
+
+- **Pros:** Maximum performance. Uses the standard `0xE2` cookie-cut minterm in a single pass. Costs only 4 DMA cycles per word.
+- **Cons:** Wastes Chip RAM memory due to the empty space in the sprite sheet.
+
+### The Two-Pass Method (Tightly Packed Sprite Sheets)
+
+You abandon Channel B entirely and perform the cookie-cut in two passes using Channel A, because Channel A **does** have a Last Word Mask (`bltalwm`).
+
+1. **Pass 1:** Cut the hole using the mask data. (Minterm `0x0A`: `D = C & ~A`)
+2. **Pass 2:** Draw the image over the hole. (Minterm `0xFA`: `D = C | A`)
+
+By dynamically setting `bltalwm = 0x0000` when reading the extra word, you cleanly mask out the neighboring sprite's image data before it hits the screen.
+
+- **Pros:** Preserves tight 16x16 tile sizes and saves memory. No asset padding required.
+- **Cons:** 50% slower. Costs 6 DMA cycles per word (3 for Pass 1, 3 for Pass 2) instead of 4. Requires the CPU to set up registers twice and call `WaitBlt()` in the middle of drawing a single bob, halting parallel processing between the CPU and the Blitter.

@@ -402,8 +402,7 @@ void calculate_sprite_location(int row, int col, int sprite_width, int sprite_he
 	*sprite_y = (row * sprite_height) % tileset_height;
 }
 
-// Blits a 5-plane interleaved masked bob to the 320-pixel wide Interleaved screen.
-void blit_bob(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y)
+void blit_bob_1x(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y)
 {
 	WaitBlt(); // Always wait for the blitter before setting registers
 
@@ -439,11 +438,83 @@ void blit_bob(int x, int y, int width, int height, const UBYTE *tileset, int til
 	custom->bltsize = ((height * 5) << HSIZEBITS) | (width / 16); // height * planes
 }
 
+// Blits a 5-plane interleaved masked bob to the 320-pixel wide Interleaved screen.
+void blit_bob_2x(int x, int y, int width, int height, const UBYTE *tileset, int tileset_width, int tileset_height, int sprite_location_x, int sprite_location_y)
+{
+	WaitBlt(); // Always wait for the blitter before setting registers
+
+	int shift = x & 15;
+	int draw_words = width / 16;
+
+	// If the bob is shifted, it spills over into an extra 16-pixel word.
+	if (shift > 0)
+	{
+		draw_words += 1;
+	}
+	int draw_bytes = draw_words * 2;
+
+	// Calculate source offset based on sprite location
+	// Source is interleaved with a mask after EVERY plane (5 image + 5 mask = 10 planes total)
+	int src_y_offset = sprite_location_y * (tileset_width / 8) * 10;
+	int src_x_offset = sprite_location_x / 8; // 8 pixels = 1 byte
+	const UBYTE *src_start = tileset + src_y_offset + src_x_offset;
+
+	// If we read an extra word to accommodate the shift, it contains the neighboring
+	// sprite in the sheet. We mask it to 0 so it doesn't bleed onto the screen.
+	UWORD lwm = (shift > 0) ? 0x0000 : 0xffff;
+
+	int mask_offset = (tileset_width / 8);
+
+	// Modulos must account for the actual number of bytes blitted
+	int src_modulo = (tileset_width / 8) * 2 - draw_bytes;
+	int dest_modulo = (320 / 8) - draw_bytes;
+
+	UBYTE *dest = screen_buffer + (320 / 8) * 5 * y + (x / 16) * 2;
+
+	// --- PASS 1: Cut the hole (Minterm 0x0A = C & ~A) ---
+	// We point Channel A to the MASK data.
+	custom->bltcon0 = 0x0a | SRCA | SRCC | DEST | (shift << ASHIFTSHIFT);
+	custom->bltcon1 = 0; // Only A is shifted, B is unused
+
+	custom->bltafwm = 0xffff;
+	custom->bltalwm = lwm;
+
+	custom->bltapt = (APTR)(src_start + mask_offset);
+	custom->bltamod = src_modulo;
+
+	custom->bltcpt = dest;
+	custom->bltcmod = dest_modulo;
+	custom->bltdpt = dest;
+	custom->bltdmod = dest_modulo;
+
+	custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words;
+
+	// --- PASS 2: Draw the Image (Minterm 0xFA = C | A) ---
+	WaitBlt();
+	// We point Channel A to the IMAGE data.
+	custom->bltcon0 = 0xfa | SRCA | SRCC | DEST | (shift << ASHIFTSHIFT);
+	custom->bltcon1 = 0;
+
+	// FWM/LWM remain the same
+	custom->bltapt = (APTR)src_start;
+	custom->bltcpt = dest;
+	custom->bltdpt = dest;
+
+	custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words;
+}
+
 // Restores a rectangular block from a clean background to the active screen buffer.
 // Both buffers must be 320-pixel wide Interleaved formats.
 void restore_background(int x, int y, int width, int height, const UBYTE *clean_bg, UBYTE *screen_buffer)
 {
 	WaitBlt();
+
+	int shift = x & 15;
+	int draw_words = width / 16;
+	if (shift > 0)
+		draw_words += 1;
+
+	int draw_bytes = draw_words * 2;
 
 	// Minterm 0xF0 means D = A (Direct Copy).
 	// No shifts are needed because the clean background and screen perfectly align!
@@ -451,7 +522,7 @@ void restore_background(int x, int y, int width, int height, const UBYTE *clean_
 	custom->bltcon1 = 0;
 
 	int byte_offset = (320 / 8) * 5 * y + (x / 16) * 2;
-	int modulo = (320 - width) / 8;
+	int modulo = (320 / 8) - draw_bytes;
 
 	custom->bltapt = (APTR)(clean_bg + byte_offset);
 	custom->bltamod = modulo;
@@ -461,7 +532,7 @@ void restore_background(int x, int y, int width, int height, const UBYTE *clean_
 
 	custom->bltafwm = 0xffff;
 	custom->bltalwm = 0xffff;
-	custom->bltsize = ((height * 5) << HSIZEBITS) | (width / 16);
+	custom->bltsize = ((height * 5) << HSIZEBITS) | draw_words;
 }
 
 int main()
@@ -640,9 +711,9 @@ int main()
 			if (drawFirst)
 			{
 				KPrintF("Blitting! (%ld)\n", mv);
-				blit_bob(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
-				blit_bob(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
-				blit_bob(208 + mv, y + 1, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 16, 0);
+				blit_bob_1x(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0);
+				blit_bob_1x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0);
+				blit_bob_1x(208 + mv, y + 1, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 16, 0);
 			}
 			else
 			{

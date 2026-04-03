@@ -532,6 +532,9 @@ int main()
 	custom->copjmp1 = 0x7fff;	   // start coppper
 	custom->dmacon = DMAF_SETCLR | DMAF_MASTER | DMAF_RASTER | DMAF_COPPER | DMAF_BLITTER;
 
+	// Initialize keyboard BEFORE enabling interrupts
+	keyboard_init();
+
 	// DEMO
 	SetInterruptHandler((APTR)interruptHandler);
 	custom->intena = INTF_SETCLR | INTF_INTEN | INTF_VERTB | INTF_PORTS;
@@ -549,8 +552,6 @@ int main()
 	// KPrintF("Bob3 location y: (%ld)\n", bob3_y);
 	int mv = 0;
 	int my = 0;
-
-	keyboard_init();
 
 	while (!MouseLeft())
 	{
@@ -612,7 +613,9 @@ int main()
 			// blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
 
 			mv += 1;
+			// KPrintF("Movement ...\n");
 		}
+		// KPrintF("Blitting ...\n");
 
 		// Update edge-detection tracking at the very END of the loop
 		keyboard_update();

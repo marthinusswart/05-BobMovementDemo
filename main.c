@@ -16,6 +16,12 @@
 // config
 #define MUSIC
 
+#ifdef BARTMAN_GCC
+#define dude "Bartman GCC"
+#else
+#define dude "Unknown Compiler"
+#endif
+
 struct ExecBase *SysBase;
 volatile struct Custom *custom;
 struct DosLibrary *DOSBase;
@@ -453,6 +459,7 @@ int main()
 	KPrintF("Hello debugger from Amiga: %ld!\n", staticClass.i);
 #else
 	KPrintF("Hello debugger from Amiga!\n");
+	KPrintF("Compiled with %s\n", dude);
 #endif
 	Write(Output(), (APTR) "Hello console!\n", 15);
 	Delay(50);

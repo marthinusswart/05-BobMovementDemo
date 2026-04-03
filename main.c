@@ -1,6 +1,7 @@
 #include "support/gcc8_c_support.h"
 #include "blitter.h"
 #include "mouse.h"
+#include "keyboard.h"
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/graphics.h>
@@ -13,7 +14,7 @@
 #include <hardware/intbits.h>
 
 // config
-#define MUSIC
+#define MUSIC_OFF
 
 struct ExecBase *SysBase;
 volatile struct Custom *custom;
@@ -152,10 +153,10 @@ void FreeSystem()
 
 // DEMO - INCBIN
 volatile short frameCounter = 0;
-INCBIN(colors, "packman_tiles.pal")
-INCBIN_CHIP(image, "image.bpl") // load image into chipmem so we can use it without copying
-INCBIN_CHIP(pacman_tiles, "pacman_tiles.bpl")
-INCBIN_CHIP(bob2, "amiga-bob.bpl")
+INCBIN(colors, "pal/packman_tiles.pal")
+INCBIN_CHIP(image, "bpl/image.bpl") // load image into chipmem so we can use it without copying
+INCBIN_CHIP(pacman_tiles, "bpl/pacman_tiles.bpl")
+INCBIN_CHIP(bob2, "bpl/amiga-bob.bpl")
 
 #define BG_SIZE ((320 / 8) * 256 * 5) // 51,200 bytes
 UBYTE *screen_buffer = NULL;		  // Active display buffer
@@ -480,9 +481,9 @@ int main()
 	USHORT *copPtr = copper1;
 
 	// register graphics resources with WinUAE for nicer gfx debugger experience
-	debug_register_bitmap(image, "image.bpl", 320, 256, 5, debug_resource_bitmap_interleaved);
-	debug_register_bitmap(pacman_tiles, "pacman_tiles.bpl", 320, 320, 5, debug_resource_bitmap_interleaved | debug_resource_bitmap_masked);
-	debug_register_palette(colors, "pacman_tiles.pal", 32, 0);
+	debug_register_bitmap(image, "bpl/image.bpl", 320, 256, 5, debug_resource_bitmap_interleaved);
+	debug_register_bitmap(pacman_tiles, "bpl/pacman_tiles.bpl", 320, 320, 5, debug_resource_bitmap_interleaved | debug_resource_bitmap_masked);
+	debug_register_palette(colors, "pal/pacman_tiles.pal", 32, 0);
 	debug_register_copperlist(copper1, "copper1", 1024, 0);
 	debug_register_copperlist(copper2, "copper2", sizeof(copper2), 0);
 
@@ -544,34 +545,52 @@ int main()
 	while (!MouseLeft())
 	{
 		WaitVbl(); // Wait for VBL so we only blit once per frame
+		short key = PollKeyboard();
+		if (key != -1)
+		{
+			// Strip the key release bit (0x80) to get the base keycode
+			short baseKey = key & 0x7F;
+			BOOL isRelease = (key & 0x80) != 0;
+
+			KPrintF("Key event: raw=%02lx, base=%02lx, released=%ld\n", (long)key, (long)baseKey, (long)isRelease);
+
+			// Check if the base key is ESCAPE and it is a "key down" event
+			if (baseKey == KEY_ESCAPE && !isRelease)
+			{
+				KPrintF("ESC pressed, exiting demo.\n");
+				break; // Exit demo
+			}
+		}
 		int f = frameCounter & 255;
 
 		// Set x to a multiple of 16 (like 96) to prevent 1-word right-edge cutoff
 		int x = 16;
 		int y = 150;
 
-		// Grab the very first 16x16 tile in the sprite sheet (Index 0)
 		UBYTE *src = (UBYTE *)pacman_tiles;
 		UBYTE *src2 = (UBYTE *)bob2;
 
 		if (drawFirst)
 		{
-			legacyBlit(x, y, src, src2);
+			// legacyBlit(x, y, src, src2);
+			blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
+
+			drawFirst = FALSE;
 		}
 
 		// --- TEST NEW FUNCTION ---
-		if (f % 25 == 0)
+		if (f % 50 == 0)
 		{
 
-			KPrintF("Clearing Blitting! (%ld)\n", (mv - 1));
-			restoreBackground(128 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer, custom);
-			restoreBackground(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
-			restoreBackground(208 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+			// KPrintF("Clearing Blitting! (%ld)\n", (mv - 1));
+			restoreBackground(16 + (mv - 1), y, 64, 64, (const UBYTE *)image, screen_buffer, custom);
+			// restoreBackground(192 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+			// restoreBackground(208 + (mv - 1), y, 16, 16, (const UBYTE *)image, screen_buffer, custom);
 
-			KPrintF("Blitting! (%ld)\n", mv);
-			blitBob1x(128 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0, screen_buffer, custom);
-			blitBob2x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0, screen_buffer, custom);
-			blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
+			// KPrintF("Blitting! (%ld)\n", mv);
+			blitBob1x(16 + mv, y, 64, 64, (const UBYTE *)bob2, 64, 64, 0, 0, screen_buffer, custom);
+			// blitBob2x(192 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, 0, 0, screen_buffer, custom);
+			// blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
 
 			mv += 1;
 		}

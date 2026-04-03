@@ -9,6 +9,10 @@
 #define KEY_DOWN 0x4d
 #define KEY_RIGHT 0x4e
 #define KEY_LEFT 0x4f
+#define KEY_W 0x11
+#define KEY_S 0x21
+#define KEY_A 0x20
+#define KEY_D 0x22
 
 typedef struct
 {

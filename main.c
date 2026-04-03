@@ -548,6 +548,7 @@ int main()
 	// KPrintF("Bob3 location x: (%ld)\n", bob3_x);
 	// KPrintF("Bob3 location y: (%ld)\n", bob3_y);
 	int mv = 0;
+	int my = 0;
 
 	keyboard_init();
 
@@ -555,15 +556,27 @@ int main()
 	{
 		WaitVbl(); // Wait for VBL so we only blit once per frame
 
+		int prev_my = my; // Store previous Y position BEFORE updating movement
+
 		if (key_was_pressed(KEY_ESC))
 		{
 			KPrintF("Exiting...\n");
 			break;
 		}
-		else if (key_is_down(KEY_ESC))
+		if (key_is_down(KEY_ESC))
 		{
 			KPrintF("Holding ESC...\n");
 			break;
+		}
+		if (key_is_down(KEY_UP) || key_is_down(KEY_W))
+		{
+			KPrintF("Holding UP...\n");
+			my -= 1;
+		}
+		if (key_is_down(KEY_DOWN) || key_is_down(KEY_S))
+		{
+			KPrintF("Holding DOWN...\n");
+			my += 1;
 		}
 
 		int f = frameCounter & 255;
@@ -578,9 +591,10 @@ int main()
 		if (drawFirst)
 		{
 			// legacyBlit(x, y, src, src2);
-			blitBob1x(208 + mv, y, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
+			restoreBackground(208 + (mv - 1), y + prev_my, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+			blitBob1x(208, y + my, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
 
-			drawFirst = FALSE;
+			// drawFirst = FALSE;
 		}
 
 		// --- TEST NEW FUNCTION ---

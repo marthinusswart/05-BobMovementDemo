@@ -14,7 +14,7 @@
 #include <hardware/intbits.h>
 
 // config
-#define MUSIC_OFF
+#define MUSIC
 
 struct ExecBase *SysBase;
 volatile struct Custom *custom;
@@ -25,7 +25,7 @@ struct GfxBase *GfxBase;
 static UWORD SystemInts;
 static UWORD SystemDMA;
 static UWORD SystemADKCON;
-static volatile APTR VBR = 0;
+volatile APTR VBR = 0;
 static APTR SystemIrq;
 
 struct View *ActiView;
@@ -527,7 +527,7 @@ int main()
 
 	// DEMO
 	SetInterruptHandler((APTR)interruptHandler);
-	custom->intena = INTF_SETCLR | INTF_INTEN | INTF_VERTB;
+	custom->intena = INTF_SETCLR | INTF_INTEN | INTF_VERTB | INTF_PORTS;
 #ifdef MUSIC
 	custom->intena = INTF_SETCLR | INTF_EXTER; // ThePlayer needs INTF_EXTER
 #endif
@@ -538,29 +538,27 @@ int main()
 	int bob3_y = 0;
 
 	calculateSpriteLocation(3, 5, 16, 16, 320, 320, &bob3_x, &bob3_y);
-	KPrintF("Bob3 location x: (%ld)\n", bob3_x);
-	KPrintF("Bob3 location y: (%ld)\n", bob3_y);
+	// KPrintF("Bob3 location x: (%ld)\n", bob3_x);
+	// KPrintF("Bob3 location y: (%ld)\n", bob3_y);
 	int mv = 0;
+
+	keyboard_init();
 
 	while (!MouseLeft())
 	{
 		WaitVbl(); // Wait for VBL so we only blit once per frame
-		short key = PollKeyboard();
-		if (key != -1)
+
+		if (key_was_pressed(KEY_ESC))
 		{
-			// Strip the key release bit (0x80) to get the base keycode
-			short baseKey = key & 0x7F;
-			BOOL isRelease = (key & 0x80) != 0;
-
-			KPrintF("Key event: raw=%02lx, base=%02lx, released=%ld\n", (long)key, (long)baseKey, (long)isRelease);
-
-			// Check if the base key is ESCAPE and it is a "key down" event
-			if (baseKey == KEY_ESCAPE && !isRelease)
-			{
-				KPrintF("ESC pressed, exiting demo.\n");
-				break; // Exit demo
-			}
+			KPrintF("Exiting...\n");
+			break;
 		}
+		else if (key_is_down(KEY_ESC))
+		{
+			KPrintF("Holding ESC...\n");
+			break;
+		}
+
 		int f = frameCounter & 255;
 
 		// Set x to a multiple of 16 (like 96) to prevent 1-word right-edge cutoff
@@ -594,6 +592,9 @@ int main()
 
 			mv += 1;
 		}
+
+		// Update edge-detection tracking at the very END of the loop
+		keyboard_update();
 	}
 
 #ifdef MUSIC

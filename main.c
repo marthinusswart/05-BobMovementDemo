@@ -2,6 +2,7 @@
 #include "blitter.h"
 #include "mouse.h"
 #include "keyboard.h"
+#include "pacman.h"
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <proto/graphics.h>
@@ -14,7 +15,7 @@
 #include <hardware/intbits.h>
 
 // config
-#define MUSIC
+#define MUSIC_OFF
 
 #ifdef BARTMAN_GCC
 #define dude "Bartman GCC"
@@ -26,6 +27,7 @@ struct ExecBase *SysBase;
 volatile struct Custom *custom;
 struct DosLibrary *DOSBase;
 struct GfxBase *GfxBase;
+Pacman *pacman;
 
 // backup
 static UWORD SystemInts;
@@ -538,6 +540,7 @@ int main()
 	// DEMO
 	SetInterruptHandler((APTR)interruptHandler);
 	custom->intena = INTF_SETCLR | INTF_INTEN | INTF_VERTB | INTF_PORTS;
+
 #ifdef MUSIC
 	custom->intena = INTF_SETCLR | INTF_EXTER; // ThePlayer needs INTF_EXTER
 #endif
@@ -546,8 +549,24 @@ int main()
 	BOOL drawFirst = TRUE;
 	int bob3_x = 0;
 	int bob3_y = 0;
+	KPrintF("Create Pacman!\n");
+	pacman = createPacman(208, 150, 16, 16);
 
+	calculateSpriteLocation(3, 9, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	KPrintF("Created RIGHT sprite at (%ld, %ld)\n", bob3_x, bob3_y);
+	pacman->addSprite(pacman, RIGHT, bob3_x, bob3_y, 16, 16);
 	calculateSpriteLocation(3, 5, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	KPrintF("Created DOWN sprite at (%ld, %ld)\n", bob3_x, bob3_y);
+	pacman->addSprite(pacman, DOWN, bob3_x, bob3_y, 16, 16);
+	calculateSpriteLocation(3, 7, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	KPrintF("Created LEFT sprite at (%ld, %ld)\n", bob3_x, bob3_y);
+	pacman->addSprite(pacman, LEFT, bob3_x, bob3_y, 16, 16);
+	calculateSpriteLocation(3, 11, 16, 16, 320, 320, &bob3_x, &bob3_y);
+	KPrintF("Created UP sprite at (%ld, %ld)\n", bob3_x, bob3_y);
+	pacman->addSprite(pacman, UP, bob3_x, bob3_y, 16, 16);
+
+	// KPrintF("pacman location x: (%ld)\n", pacman->spriteX);
+	// KPrintF("pacman location y: (%ld)\n", pacman->spriteY);
 	// KPrintF("Bob3 location x: (%ld)\n", bob3_x);
 	// KPrintF("Bob3 location y: (%ld)\n", bob3_y);
 	int mv = 0;
@@ -571,13 +590,19 @@ int main()
 		}
 		if (key_is_down(KEY_UP) || key_is_down(KEY_W))
 		{
-			KPrintF("Holding UP...\n");
-			my -= 1;
+			pacman->movePacman(pacman, UP);
 		}
 		if (key_is_down(KEY_DOWN) || key_is_down(KEY_S))
 		{
-			KPrintF("Holding DOWN...\n");
-			my += 1;
+			pacman->movePacman(pacman, DOWN);
+		}
+		if (key_is_down(KEY_LEFT) || key_is_down(KEY_A))
+		{
+			pacman->movePacman(pacman, LEFT);
+		}
+		if (key_is_down(KEY_RIGHT) || key_is_down(KEY_D))
+		{
+			pacman->movePacman(pacman, RIGHT);
 		}
 
 		int f = frameCounter & 255;
@@ -591,9 +616,19 @@ int main()
 
 		if (drawFirst)
 		{
+			// bob3_x = pacman->getSprite(pacman, pacman->direction)->x;
+			// bob3_y = pacman->getSprite(pacman, pacman->direction)->y;
+			// KPrintF("Bob3 location x: (%ld)\n", bob3_x);
+			// KPrintF("Bob3 location y: (%ld)\n", bob3_y);
+
 			// legacyBlit(x, y, src, src2);
-			restoreBackground(208 + (mv - 1), y + prev_my, 16, 16, (const UBYTE *)image, screen_buffer, custom);
-			blitBob1x(208, y + my, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
+			// restoreBackground(208 + (mv - 1), y + prev_my, 16, 16, (const UBYTE *)image, screen_buffer, custom);
+			// blitBob1x(208, y + my, 16, 16, (const UBYTE *)pacman_tiles, 320, 320, bob3_x, bob3_y, screen_buffer, custom);
+			restoreBackground(pacman->prevX, pacman->prevY, pacman->width, pacman->height, (const UBYTE *)image, screen_buffer, custom);
+			blitBob1x(pacman->x, pacman->y, pacman->width, pacman->height, (const UBYTE *)pacman_tiles, 320, 320,
+					  pacman->getSprite(pacman, pacman->direction)->x,
+					  pacman->getSprite(pacman, pacman->direction)->y,
+					  screen_buffer, custom);
 
 			// drawFirst = FALSE;
 		}
